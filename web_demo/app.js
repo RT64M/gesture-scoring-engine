@@ -42,11 +42,20 @@ const COPY = {
     cameraError: "Camera or MediaPipe failed to start.",
     noLivePrediction: "Waiting for live hand landmarks.",
     cameraUnavailable: "This browser cannot open a camera stream.",
+    mediaPipeUnavailable: "Camera preview is running, but the hand landmark model could not start.",
+    cameraPermissionHint: "Use HTTPS or localhost and allow browser camera permission.",
     sampledFrame: "Sampled frame",
     lastSnapshot: "Previous-second snapshot",
     snapshotIdle: "No sampled frame yet.",
     snapshotCaptured: "Analyzed sampled frame at {time}.",
     samplingPaused: "Sampling is paused. Resume to analyze new snapshots.",
+    gesture2dDescriptor: "Selected target",
+    targetGestureShape: "2D Gesture Descriptor",
+    descriptorSource: "Template source",
+    descriptorSamples: "Reference samples",
+    descriptorFocus: "Shape focus",
+    descriptorFocusTemplate: "Most distinctive dimensions: {features}.",
+    descriptorUnavailable: "No 2D template is available for this gesture.",
     chapterThree: "Chapter 3 evidence",
     gestureMap: "Gesture Map",
     gestureMapAlt: "Ten gesture landmark mapping grid",
@@ -350,6 +359,16 @@ function drawSnapshotFrame(result = null) {
   });
 }
 
+function gestureDescriptorSourceLabel(source) {
+  if (source === "canonical_demo_template") {
+    return "canonical demo template";
+  }
+  if (source === "hagrid_train_val_mean") {
+    return "HaGRID train+val mean";
+  }
+  return source || "not recorded";
+}
+
 function clearSnapshotFrame() {
   const canvas = $("#snapshot-canvas");
   if (!canvas) {
@@ -382,7 +401,7 @@ async function ensureHandLandmarker() {
     baseOptions: {
       modelAssetPath: config.model_asset_url,
     },
-    runningMode: "VIDEO",
+    runningMode: "IMAGE",
     numHands: config.num_hands,
     minHandDetectionConfidence: config.min_hand_detection_confidence,
     minHandPresenceConfidence: config.min_hand_presence_confidence,
@@ -432,9 +451,13 @@ function sampleCameraFrame() {
     $("#camera-status").textContent = text.noLivePrediction;
     return;
   }
-  drawSnapshotFrame(null);
-  const result = detectionFromSnapshotCanvas();
-  processSnapshotResult(result);
+  try {
+    drawSnapshotFrame(null);
+    const result = detectionFromSnapshotCanvas();
+    processSnapshotResult(result);
+  } catch (error) {
+    $("#camera-status").textContent = `${text.mediaPipeUnavailable} ${error.message ?? ""}`.trim();
+  }
 }
 
 function startSampling() {
@@ -464,8 +487,12 @@ function resumeSampling() {
 }
 
 async function startCamera() {
+  if (!window.isSecureContext) {
+    $("#camera-status").textContent = `${text.cameraUnavailable} ${text.cameraPermissionHint}`;
+    return;
+  }
   if (!navigator.mediaDevices?.getUserMedia) {
-    $("#camera-status").textContent = text.cameraUnavailable;
+    $("#camera-status").textContent = `${text.cameraUnavailable} ${text.cameraPermissionHint}`;
     return;
   }
   $("#camera-status").textContent = text.cameraLoading;
@@ -483,12 +510,17 @@ async function startCamera() {
     state.camera.stream = stream;
     video.srcObject = stream;
     await video.play();
-    const landmarker = await ensureHandLandmarker();
-    state.camera.landmarker = landmarker;
     state.camera.running = true;
     state.camera.paused = false;
     $("#camera-toggle").textContent = text.pauseCamera;
     $("#camera-status").textContent = text.cameraRunning;
+    try {
+      const landmarker = await ensureHandLandmarker();
+      state.camera.landmarker = landmarker;
+    } catch (error) {
+      $("#camera-status").textContent = `${text.mediaPipeUnavailable} ${error.message ?? ""}`.trim();
+      return;
+    }
     startSampling();
   } catch (error) {
     stopCamera();
@@ -532,9 +564,13 @@ function captureFrame() {
     $("#camera-status").textContent = text.noLivePrediction;
     return;
   }
-  drawSnapshotFrame(null);
-  const result = detectionFromSnapshotCanvas();
-  processSnapshotResult(result);
+  try {
+    drawSnapshotFrame(null);
+    const result = detectionFromSnapshotCanvas();
+    processSnapshotResult(result);
+  } catch (error) {
+    $("#camera-status").textContent = `${text.mediaPipeUnavailable} ${error.message ?? ""}`.trim();
+  }
 }
 
 function currentChallenge() {
@@ -904,6 +940,71 @@ function renderClassifier() {
   if (descriptor) {
     document.title = text.pageTitle;
   }
+  renderTargetGestureDescription();
+}
+
+function renderTargetGestureDescription() {
+  const skeleton = state.demoData.gesture_skeletons[state.gesture];
+  const descriptor = state.demoData.gesture_descriptors_summary[state.gesture];
+  const canvas = $("#target-gesture-skeleton");
+  const description = $("#target-gesture-description");
+  if (!canvas || !description) {
+    return;
+  }
+  if (!skeleton?.standard?.length) {
+    clearTargetGestureCanvas(canvas);
+    description.innerHTML = `
+      <div class="target-description-card">
+        <strong>${labelGesture(state.gesture)}</strong>
+        <span>${text.descriptorUnavailable}</span>
+      </div>
+    `;
+    return;
+  }
+  drawSkeleton(canvas, skeleton.standard, {
+    line: "#2d6f5f",
+    dot: "#1e241f",
+    wrist: "#315f89",
+    background: "rgba(255, 253, 247, 0.92)",
+  });
+  const topFeatures = (descriptor?.top_mean_features ?? [])
+    .slice(0, 3)
+    .map((item) => featureLabel(item.name))
+    .join(", ");
+  const source = gestureDescriptorSourceLabel(skeleton.source);
+  const sampleText = skeleton.samples > 0 ? skeleton.samples.toLocaleString("en-US") : "template";
+  description.innerHTML = `
+    <div class="target-description-card emphasis">
+      <strong>${labelGesture(state.gesture)}</strong>
+      <span>${state.gesture}</span>
+    </div>
+    <div class="target-description-card">
+      <strong>${source}</strong>
+      <span>${text.descriptorSource}</span>
+    </div>
+    <div class="target-description-card">
+      <strong>${sampleText}</strong>
+      <span>${text.descriptorSamples}</span>
+    </div>
+    <div class="target-description-card wide">
+      <strong>${text.descriptorFocus}</strong>
+      <span>${text.descriptorFocusTemplate.replace("{features}", topFeatures || "landmark geometry")}</span>
+    </div>
+  `;
+}
+
+function clearTargetGestureCanvas(canvas) {
+  const ratio = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(220, rect.width || canvas.clientWidth || 280);
+  const height = Math.max(220, rect.height || canvas.clientHeight || 260);
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const context = canvas.getContext("2d");
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "rgba(30, 36, 31, 0.08)";
+  context.fillRect(0, 0, width, height);
 }
 
 function renderSkeletonComparison(current) {

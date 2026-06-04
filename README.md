@@ -102,6 +102,7 @@ http://localhost:8000/web_demo/
 The demo currently includes:
 
 - ten-gesture camera classification from one sampled screenshot per second, with the previous-second snapshot shown and analyzed below the live preview
+- a selected-target 2D skeleton descriptor that updates with the classifier gesture selector
 - Palm cold-start scoring scenarios where the first adaptive score matches direct scoring, then later scores change through the learned user model and threshold state
 - simulated Palm skeleton playback from a curled-finger patient attempt toward a five-finger upright target
 - traces for `tau`, baseline, momentum, blend weight, distance, and challenge-zone state
