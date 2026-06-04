@@ -97,13 +97,13 @@ const COPY = {
     pageThree: "Page 03",
     inverseTitle: "Inverse Scoring",
     inverseCopy:
-      "The final page reads the Palm cold-start history backwards. The visible score can stay in a narrow band while tau tightens, so inverse progress can rise far more than the score alone suggests.",
+      "Fixed raw score rises as the Palm attempt improves. The adaptive score stays flatter because tau tightens, and inverse progress rises because strictness is counted together with descriptor recovery.",
     rawVsInterpreted: "Raw vs interpreted",
     scoreInverseProgress: "Score and Inverse Progress",
     weightedSignal: "Weighted signal",
     progressComponents: "Progress Components",
     inverseInsight: "Inverse insight",
-    inverseInsightTemplate: "From attempt 1 to {attempt}, adaptive score changed by {scoreDelta} points, but tau changed from {tauStart} to {tauNow}; inverse progress is {progress}.",
+    inverseInsightTemplate: "From attempt 1 to {attempt}, fixed raw score changed by {rawDelta} points while tighter tau compresses adaptive score to {scoreDelta} points; inverse progress is {progress}.",
     chapterSix: "Chapter 6 reference",
     stateVariablesFigure: "State Variables",
     inverseFigureAlt: "Inverse progress state variables",
@@ -663,15 +663,23 @@ function computeDescriptorRecovery(history, index) {
   return clamp(1 - current / start, 0, 1);
 }
 
+function scoreFromDistanceAndTau(distance, tau) {
+  const gamma = state.runtimeConfig.stage2.gamma;
+  const rawScore = Math.exp(-Math.max(Number(distance), 0) / Math.max(Number(tau), 1e-6));
+  return Math.max(0, Math.min(100, Math.round((rawScore ** gamma) * 100)));
+}
+
 function computeComponents(history, index) {
   const item = history[index];
   const initialTau = history[0]?.inverse_tau ?? currentChallenge().tau_init;
   const currentTau = item.inverse_tau ?? item.threshold_tau;
   const strictness = clamp((initialTau - currentTau) / Math.max(initialTau - currentChallenge().tau_min, 1e-6), 0, 1);
   const descriptorRecovery = computeDescriptorRecovery(history, index);
-  const baselineMargin = clamp((item.display_score - item.baseline) / 25, 0, 1);
+  const inverseAdaptiveScore = item.inverse_adaptive_score ?? item.display_score;
+  const baselineMargin = clamp((inverseAdaptiveScore - item.baseline) / 25, 0, 1);
   const momentum = clamp(item.momentum / 10, 0, 1);
-  const zone = item.challenge_zone === "in_zone" ? 1 : item.challenge_zone === "too_easy" ? 0.5 : 0;
+  const zoneCode = item.inverse_challenge_zone ?? item.challenge_zone;
+  const zone = zoneCode === "in_zone" ? 1 : zoneCode === "too_easy" ? 0.5 : 0;
   return {
     strictness_progression: strictness,
     descriptor_recovery: descriptorRecovery,
@@ -696,7 +704,7 @@ function inverseProgress(history, index) {
 function inverseTauForIndex(index, total) {
   const cold = currentChallenge();
   const progress = index / Math.max(total - 1, 1);
-  return cold.tau_init - (cold.tau_init - cold.tau_min) * (progress ** 0.85) * 0.82;
+  return cold.tau_init - (cold.tau_init - cold.tau_min) * (progress ** 0.85) * 0.48;
 }
 
 function buildColdStartHistory() {
@@ -751,6 +759,12 @@ function buildColdStartHistory() {
   });
 
   rows.forEach((row, index) => {
+    row.inverse_adaptive_score = scoreFromDistanceAndTau(row.fixed_distance, row.inverse_tau);
+    row.inverse_challenge_zone = getChallengeZone(
+      row.inverse_adaptive_score,
+      currentChallenge().challenge_low,
+      currentChallenge().challenge_high,
+    );
     row.components = computeComponents(rows, index);
     row.inverse_progress = inverseProgress(rows, index);
   });
@@ -1159,7 +1173,7 @@ function renderInverseChart() {
   const pad = { left: 42, right: 18, top: 22, bottom: 38 };
   const xScale = (index) => pad.left + (index / Math.max(state.history.length - 1, 1)) * (width - pad.left - pad.right);
   const yScale = (value) => height - pad.bottom - (value / 100) * (height - pad.top - pad.bottom);
-  const scoreValues = rows.map((item) => item.display_score);
+  const scoreValues = rows.map((item) => item.inverse_adaptive_score);
   const fixedValues = rows.map((item) => item.fixed_score);
   const inverseValues = rows.map((item) => item.inverse_progress * 100);
 
@@ -1195,15 +1209,17 @@ function renderInverse() {
   };
   $("#inverse-insight").innerHTML = `<strong>${text.inverseInsight}:</strong> ${text.inverseInsightTemplate
     .replace("{attempt}", current.attempt)
-    .replace("{scoreDelta}", `${current.display_score - first.display_score >= 0 ? "+" : ""}${current.display_score - first.display_score}`)
-    .replace("{tauStart}", fmt(first.inverse_tau, 3))
-    .replace("{tauNow}", fmt(current.inverse_tau, 3))
+    .replace("{rawDelta}", `${current.fixed_score - first.fixed_score >= 0 ? "+" : ""}${current.fixed_score - first.fixed_score}`)
+    .replace(
+      "{scoreDelta}",
+      `${current.inverse_adaptive_score - first.inverse_adaptive_score >= 0 ? "+" : ""}${current.inverse_adaptive_score - first.inverse_adaptive_score}`,
+    )
     .replace("{progress}", pct(current.inverse_progress))}`;
 
   $("#inverse-headline").innerHTML = [
     [text.inverseProgress, pct(current.inverse_progress), "emphasis"],
     [text.fixedScore, current.fixed_score, ""],
-    [text.adaptiveScore, current.display_score, ""],
+    [text.adaptiveScore, current.inverse_adaptive_score, ""],
     [text.tau, fmt(current.inverse_tau, 3), ""],
   ]
     .map(
