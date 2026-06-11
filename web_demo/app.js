@@ -378,14 +378,14 @@ function drawSnapshotFrame(result = null) {
       return;
     }
     context.beginPath();
-    context.moveTo((1 - start.x) * width, (1 - start.y) * height);
-    context.lineTo((1 - end.x) * width, (1 - end.y) * height);
+    context.moveTo(start.x * width, start.y * height);
+    context.lineTo(end.x * width, end.y * height);
     context.stroke();
   });
   landmarks.forEach((point, index) => {
     context.beginPath();
     context.fillStyle = index === 0 ? "#bc5e35" : "#2d6f5f";
-    context.arc((1 - point.x) * width, (1 - point.y) * height, index === 0 ? 6 : 4.5, 0, Math.PI * 2);
+    context.arc(point.x * width, point.y * height, index === 0 ? 6 : 4.5, 0, Math.PI * 2);
     context.fill();
   });
 }

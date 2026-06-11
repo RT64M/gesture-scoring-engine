@@ -58,4 +58,5 @@ def test_live_classifier_camera_and_snapshot_are_rotated():
     assert "drawRotatedCameraFrame" in app_source
     assert "context.translate(width, height)" in app_source
     assert "context.rotate(Math.PI)" in app_source
-    assert "(1 - point.y) * height" in app_source
+    assert "context.moveTo(start.x * width, start.y * height)" in app_source
+    assert "context.arc(point.x * width, point.y * height" in app_source
