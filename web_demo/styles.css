@@ -390,7 +390,7 @@ label span {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scaleX(-1);
+  transform: scaleX(-1) rotate(180deg);
 }
 
 .snapshot-canvas {
@@ -542,6 +542,18 @@ label span {
   gap: 7px;
 }
 
+.feature-row {
+  padding: 9px 10px;
+  border: 1px solid rgba(30, 36, 31, 0.08);
+  border-radius: var(--radius);
+  background: rgba(255, 253, 247, 0.46);
+}
+
+.feature-row.impact {
+  border-color: rgba(49, 95, 137, 0.34);
+  background: rgba(49, 95, 137, 0.09);
+}
+
 .ranking-top,
 .feature-top,
 .timeline-top,
@@ -551,6 +563,29 @@ label span {
   gap: 12px;
   color: var(--ink);
   font-size: 0.92rem;
+}
+
+.feature-top strong {
+  overflow-wrap: anywhere;
+}
+
+.feature-meta {
+  min-height: 1.25rem;
+}
+
+.feature-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid rgba(49, 95, 137, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.76);
+  color: var(--blue);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .bar-track {

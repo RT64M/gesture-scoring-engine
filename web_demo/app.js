@@ -64,6 +64,7 @@ const COPY = {
     distanceRanking: "Distance Ranking",
     featureExplanation: "Feature explanation",
     dominantDeviations: "Dominant Deviations",
+    topFeatureBadge: "Top 5 impact",
     explainScore: "Score explanation",
     currentScore: "Current score",
     lowScoreReason: "Main reason",
@@ -258,6 +259,31 @@ function deviationDirection(feature, zScore) {
   return zScore > 0 ? text.directions.high : text.directions.low;
 }
 
+function renderFeatureExplanation(deviations) {
+  const topDeviationFeatures = new Set(deviations.slice(0, 5).map((item) => item.feature));
+  const maxDeviation = Math.max(...deviations.map((item) => item.magnitude), 1);
+  $("#classifier-deviations").innerHTML = deviations
+    .map((item, index) => {
+      const isImpact = topDeviationFeatures.has(item.feature);
+      const rowClass = isImpact ? "feature-row impact" : "feature-row";
+      const width = item.magnitude > 0 ? Math.max(4, (item.magnitude / maxDeviation) * 100) : 0;
+      const badge = isImpact
+        ? `<span class="feature-badge">${text.topFeatureBadge} #${index + 1}</span>`
+        : "";
+      return `
+        <div class="${rowClass}">
+          <div class="feature-top">
+            <strong>${featureLabel(item.feature)}</strong>
+            <span>${fmt(item.z_score, 2)} ${text.sigmaUnit}</span>
+          </div>
+          <div class="feature-meta">${badge}</div>
+          <div class="bar-track"><div class="bar-fill ${isImpact ? "blue" : "gold"}" style="width:${width}%"></div></div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 function zoneLabel(code) {
   return text.zones[code] ?? code.replaceAll("_", " ");
 }
@@ -311,6 +337,15 @@ function drawSkeleton(canvas, points, options = {}) {
   });
 }
 
+function drawRotatedCameraFrame(context, video, width, height) {
+  context.save();
+  context.translate(width, height);
+  context.rotate(Math.PI);
+  context.scale(-1, 1);
+  context.drawImage(video, 0, 0, width, height);
+  context.restore();
+}
+
 function drawSnapshotFrame(result = null) {
   const video = $("#camera-video");
   const canvas = $("#snapshot-canvas");
@@ -325,11 +360,7 @@ function drawSnapshotFrame(result = null) {
   const context = canvas.getContext("2d");
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, width, height);
-  context.save();
-  context.translate(width, 0);
-  context.scale(-1, 1);
-  context.drawImage(video, 0, 0, width, height);
-  context.restore();
+  drawRotatedCameraFrame(context, video, width, height);
 
   const landmarks = result?.landmarks?.[0];
   if (!landmarks?.length) {
@@ -347,14 +378,14 @@ function drawSnapshotFrame(result = null) {
       return;
     }
     context.beginPath();
-    context.moveTo((1 - start.x) * width, start.y * height);
-    context.lineTo((1 - end.x) * width, end.y * height);
+    context.moveTo((1 - start.x) * width, (1 - start.y) * height);
+    context.lineTo((1 - end.x) * width, (1 - end.y) * height);
     context.stroke();
   });
   landmarks.forEach((point, index) => {
     context.beginPath();
     context.fillStyle = index === 0 ? "#bc5e35" : "#2d6f5f";
-    context.arc((1 - point.x) * width, point.y * height, index === 0 ? 6 : 4.5, 0, Math.PI * 2);
+    context.arc((1 - point.x) * width, (1 - point.y) * height, index === 0 ? 6 : 4.5, 0, Math.PI * 2);
     context.fill();
   });
 }
@@ -833,9 +864,10 @@ function renderClassifierResultFromVector(vector, drawingPoints = null) {
     .map(([gesture, distance]) => ({ gesture, distance }))
     .sort((left, right) => left.distance - right.distance);
   const targetGesture = distances[0]?.gesture ?? predictedGesture;
+  const targetDescriptor = state.runtimeConfig.stage2.descriptors[targetGesture];
   const scored = state.scorer.score(vector, targetGesture, {
     updateUserModel: false,
-    topKFeedback: 5,
+    topKFeedback: targetDescriptor?.feature_names?.length ?? 5,
   });
   const targetScored = state.scorer.score(vector, state.gesture, {
     updateUserModel: false,
@@ -881,22 +913,7 @@ function renderClassifierResultFromVector(vector, drawingPoints = null) {
     })
     .join("");
 
-  const maxDeviation = Math.max(...scored.feature_deviations.map((item) => item.magnitude), 1);
-  $("#classifier-deviations").innerHTML = scored.feature_deviations
-    .slice(0, 5)
-    .map((item) => {
-      const width = Math.max(8, (item.magnitude / maxDeviation) * 100);
-      return `
-        <div class="feature-row">
-          <div class="feature-top">
-            <strong>${featureLabel(item.feature)}</strong>
-            <span>${fmt(item.z_score, 2)} ${text.sigmaUnit}</span>
-          </div>
-          <div class="bar-track"><div class="bar-fill blue" style="width:${width}%"></div></div>
-        </div>
-      `;
-    })
-    .join("");
+  renderFeatureExplanation(scored.feature_deviations);
 
   const topDeviation = targetScored.feature_deviations[0];
   const explanation = topDeviation && topDeviation.magnitude >= 0.6
